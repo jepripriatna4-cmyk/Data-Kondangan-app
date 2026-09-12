@@ -8,22 +8,59 @@ import { DashboardPage } from './pages/DashboardPage.js';
 
 type PageRoute = '/login' | '/register' | '/dashboard';
 
+function getInitialRoute(): PageRoute {
+  if (typeof window !== 'undefined') {
+    const path = window.location.pathname;
+    if (path === '/register') return '/register';
+    if (path === '/login') return '/login';
+  }
+  return '/dashboard';
+}
+
 const AppContent: React.FC = () => {
   const { isAuthenticated, isLoading } = useAuth();
-  const [currentRoute, setCurrentRoute] = useState<PageRoute>('/dashboard');
+  const [currentRoute, setCurrentRoute] = useState<PageRoute>(getInitialRoute);
+
+  const navigateTo = (route: PageRoute) => {
+    setCurrentRoute(route);
+    if (typeof window !== 'undefined' && window.location.pathname !== route) {
+      window.history.pushState({}, '', route);
+    }
+  };
+
+  // Sync route with browser navigation (Back/Forward buttons)
+  useEffect(() => {
+    const handlePopState = () => {
+      const path = window.location.pathname;
+      if (path === '/register') setCurrentRoute('/register');
+      else if (path === '/login') setCurrentRoute('/login');
+      else setCurrentRoute('/dashboard');
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Sync route with authentication state
   useEffect(() => {
     if (!isLoading) {
       if (isAuthenticated) {
-        setCurrentRoute('/dashboard');
+        if (currentRoute === '/login' || currentRoute === '/register') {
+          setCurrentRoute('/dashboard');
+          if (typeof window !== 'undefined' && window.location.pathname !== '/dashboard') {
+            window.history.replaceState({}, '', '/dashboard');
+          }
+        }
       } else {
         if (currentRoute === '/dashboard') {
           setCurrentRoute('/login');
+          if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+            window.history.replaceState({}, '', '/login');
+          }
         }
       }
     }
-  }, [isAuthenticated, isLoading]);
+  }, [isAuthenticated, isLoading, currentRoute]);
 
   if (isLoading) {
     return (
@@ -39,9 +76,9 @@ const AppContent: React.FC = () => {
   // Protected Route for Dashboard
   if (!isAuthenticated) {
     if (currentRoute === '/register') {
-      return <RegisterPage onNavigateToLogin={() => setCurrentRoute('/login')} />;
+      return <RegisterPage onNavigateToLogin={() => navigateTo('/login')} />;
     }
-    return <LoginPage onNavigateToRegister={() => setCurrentRoute('/register')} />;
+    return <LoginPage onNavigateToRegister={() => navigateTo('/register')} />;
   }
 
   return <DashboardPage />;

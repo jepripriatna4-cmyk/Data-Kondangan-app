@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 export interface UserRecord {
   id: string;
@@ -28,72 +29,235 @@ interface DatabaseSchema {
   kondangan: KondanganRecord[];
 }
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const DB_FILE = path.join(DATA_DIR, 'kondangan_db.json');
+// Fallback seed data in case file is read-only or in ephemeral environment
+const SEED_DATA: DatabaseSchema = {
+  users: [
+    {
+      id: 'fc8ec14c-c838-4da5-bbff-feec6bafc8a6',
+      nama: 'Budi Santoso',
+      email: 'budi@example.com',
+      password_hash: '$2b$10$cjP5BEvFEiL4TXNrbN4X6.b9MKU103gGbLEeLYbu5H95L8PA7bKOq',
+      created_at: '2026-09-12T13:19:13.665Z',
+    },
+    {
+      id: '95ea8012-283c-4171-853f-ae1188cc15fd',
+      nama: 'Siti Rahma',
+      email: 'siti@example.com',
+      password_hash: '$2b$10$ZJNrgp.KgyPV1m0H69XdOu8upQZUHa96RcOv0Ti/L.KPxP0.EsEiC',
+      created_at: '2026-09-12T13:19:29.691Z',
+    },
+  ],
+  kondangan: [
+    {
+      id: '00bff408-d740-45e2-ba6e-14b62eae07d4',
+      user_id: 'fc8ec14c-c838-4da5-bbff-feec6bafc8a6',
+      nama: 'Rebo Bugel',
+      alamat: 'Pangandaran',
+      jumlah_kondangan: 500000,
+      sokongan: 'Beras 5 kg',
+      created_at: '2026-09-12T13:19:17.231Z',
+      updated_at: '2026-09-12T13:19:26.143Z',
+      status_cek: true,
+    },
+    {
+      id: '1fd23a5f-06f2-4956-a7d7-e0f2e993f590',
+      user_id: 'fc8ec14c-c838-4da5-bbff-feec6bafc8a6',
+      nama: 'ANTONIO CULI',
+      alamat: 'Mangunjaya',
+      jumlah_kondangan: 100000,
+      sokongan: 'Rokok 1 selop',
+      created_at: '2026-09-12T13:19:20.446Z',
+      updated_at: '2026-09-12T13:19:20.446Z',
+      status_cek: false,
+    },
+  ],
+};
+
+function resolveDbPaths(): { dataDir: string; dbFile: string } {
+  // On Vercel / AWS Lambda, process.cwd() is strictly read-only.
+  // The only writable directory is /tmp.
+  const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+  if (isServerless) {
+    const tmpDir = path.join('/tmp', 'kondangan_data');
+    return {
+      dataDir: tmpDir,
+      dbFile: path.join(tmpDir, 'kondangan_db.json'),
+    };
+  }
+
+  const localDir = path.join(process.cwd(), 'data');
+  return {
+    dataDir: localDir,
+    dbFile: path.join(localDir, 'kondangan_db.json'),
+  };
+}
 
 class DatabaseService {
-  private data: DatabaseSchema = {
-    users: [],
-    kondangan: [],
+  private localData: DatabaseSchema = {
+    users: [...SEED_DATA.users],
+    kondangan: [...SEED_DATA.kondangan],
   };
   private isLoaded = false;
+  private supabaseClient: SupabaseClient | null = null;
+  private storagePaths = resolveDbPaths();
 
   constructor() {
-    this.init();
+    this.initSupabase();
+    this.initLocal();
   }
 
-  private init() {
+  private initSupabase() {
+    const supabaseUrl =
+      process.env.SUPABASE_URL ||
+      process.env.NEXT_PUBLIC_SUPABASE_URL ||
+      process.env.VITE_SUPABASE_URL;
+
+    const supabaseKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
+      process.env.VITE_SUPABASE_ANON_KEY;
+
+    if (supabaseUrl && supabaseKey) {
+      try {
+        this.supabaseClient = createClient(supabaseUrl, supabaseKey);
+        console.log('[Database] Supabase client initialized successfully.');
+      } catch (err) {
+        console.error('[Database] Error initializing Supabase client:', err);
+        this.supabaseClient = null;
+      }
+    }
+  }
+
+  public isUsingSupabase(): boolean {
+    return this.supabaseClient !== null;
+  }
+
+  private initLocal() {
     try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
+      const { dataDir, dbFile } = this.storagePaths;
+
+      // Ensure directory exists if writable
+      if (!fs.existsSync(dataDir)) {
+        try {
+          fs.mkdirSync(dataDir, { recursive: true });
+        } catch (mkErr) {
+          console.warn('[Database] Could not create data directory:', mkErr);
+        }
       }
 
-      if (fs.existsSync(DB_FILE)) {
-        const raw = fs.readFileSync(DB_FILE, 'utf-8');
+      // If in serverless and file does not exist in /tmp, try copy from process.cwd() data
+      const sourceFile = path.join(process.cwd(), 'data', 'kondangan_db.json');
+      if (!fs.existsSync(dbFile) && fs.existsSync(sourceFile)) {
+        try {
+          const content = fs.readFileSync(sourceFile, 'utf-8');
+          fs.writeFileSync(dbFile, content, 'utf-8');
+        } catch {
+          // If copy fails, fallback to in-memory
+        }
+      }
+
+      if (fs.existsSync(dbFile)) {
+        const raw = fs.readFileSync(dbFile, 'utf-8');
         const parsed = JSON.parse(raw);
-        this.data = {
-          users: Array.isArray(parsed.users) ? parsed.users : [],
-          kondangan: Array.isArray(parsed.kondangan) ? parsed.kondangan : [],
+        this.localData = {
+          users: Array.isArray(parsed.users) ? parsed.users : [...SEED_DATA.users],
+          kondangan: Array.isArray(parsed.kondangan) ? parsed.kondangan : [...SEED_DATA.kondangan],
+        };
+      } else if (fs.existsSync(sourceFile)) {
+        const raw = fs.readFileSync(sourceFile, 'utf-8');
+        const parsed = JSON.parse(raw);
+        this.localData = {
+          users: Array.isArray(parsed.users) ? parsed.users : [...SEED_DATA.users],
+          kondangan: Array.isArray(parsed.kondangan) ? parsed.kondangan : [...SEED_DATA.kondangan],
         };
       } else {
-        this.persist();
+        this.persistLocal();
       }
       this.isLoaded = true;
     } catch (err) {
-      console.error('Error initializing database file:', err);
-      this.data = { users: [], kondangan: [] };
+      console.error('[Database] Error initializing local database file:', err);
+      this.localData = {
+        users: [...SEED_DATA.users],
+        kondangan: [...SEED_DATA.kondangan],
+      };
       this.isLoaded = true;
     }
   }
 
-  private persist() {
+  private persistLocal() {
     try {
-      if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
+      const { dataDir, dbFile } = this.storagePaths;
+      if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
       }
-      const tmpFile = `${DB_FILE}.tmp.${Date.now()}`;
-      fs.writeFileSync(tmpFile, JSON.stringify(this.data, null, 2), 'utf-8');
-      fs.renameSync(tmpFile, DB_FILE);
+      const tmpFile = `${dbFile}.tmp.${Date.now()}`;
+      fs.writeFileSync(tmpFile, JSON.stringify(this.localData, null, 2), 'utf-8');
+      fs.renameSync(tmpFile, dbFile);
     } catch (err) {
-      console.error('Failed to write database atomically:', err);
+      console.warn('[Database] Failed to persist to disk (may be read-only lambda):', err);
     }
   }
 
-  // --- USER OPERATIONS ---
-  public getUserByEmail(email: string): UserRecord | null {
+  // ==========================================
+  // USER OPERATIONS
+  // ==========================================
+  public async getUserByEmail(email: string): Promise<UserRecord | null> {
     const cleanEmail = email.trim().toLowerCase();
-    const user = this.data.users.find((u) => u.email.toLowerCase() === cleanEmail);
+
+    if (this.supabaseClient) {
+      try {
+        const { data, error } = await this.supabaseClient
+          .from('users')
+          .select('*')
+          .eq('email', cleanEmail)
+          .maybeSingle();
+
+        if (error) {
+          console.error('[Supabase] getUserByEmail error:', error);
+          // Fallback to local
+        } else if (data) {
+          return data as UserRecord;
+        }
+      } catch (err) {
+        console.error('[Supabase] getUserByEmail exception:', err);
+      }
+    }
+
+    const user = this.localData.users.find((u) => u.email.toLowerCase() === cleanEmail);
     return user || null;
   }
 
-  public getUserById(id: string): UserRecord | null {
-    const user = this.data.users.find((u) => u.id === id);
+  public async getUserById(id: string): Promise<UserRecord | null> {
+    if (this.supabaseClient) {
+      try {
+        const { data, error } = await this.supabaseClient
+          .from('users')
+          .select('*')
+          .eq('id', id)
+          .maybeSingle();
+
+        if (error) {
+          console.error('[Supabase] getUserById error:', error);
+        } else if (data) {
+          return data as UserRecord;
+        }
+      } catch (err) {
+        console.error('[Supabase] getUserById exception:', err);
+      }
+    }
+
+    const user = this.localData.users.find((u) => u.id === id);
     return user || null;
   }
 
-  public createUser(userData: { nama: string; email: string; password_hash: string }): UserRecord {
+  public async createUser(userData: {
+    nama: string;
+    email: string;
+    password_hash: string;
+  }): Promise<UserRecord> {
     const cleanEmail = userData.email.trim().toLowerCase();
-    const existing = this.getUserByEmail(cleanEmail);
+    const existing = await this.getUserByEmail(cleanEmail);
     if (existing) {
       throw new Error('Email sudah terdaftar. Silakan gunakan email lain atau masuk.');
     }
@@ -106,39 +270,85 @@ class DatabaseService {
       created_at: new Date().toISOString(),
     };
 
-    this.data.users.push(newUser);
-    this.persist();
+    if (this.supabaseClient) {
+      try {
+        const { data, error } = await this.supabaseClient
+          .from('users')
+          .insert([newUser])
+          .select()
+          .single();
+
+        if (error) {
+          console.error('[Supabase] createUser error, falling back to local:', error);
+        } else if (data) {
+          // Also save in local memory cache
+          this.localData.users.push(data as UserRecord);
+          this.persistLocal();
+          return data as UserRecord;
+        }
+      } catch (err) {
+        console.error('[Supabase] createUser exception:', err);
+      }
+    }
+
+    this.localData.users.push(newUser);
+    this.persistLocal();
     return newUser;
   }
 
-  // --- KONDANGAN OPERATIONS (ROW-LEVEL SECURITY ENFORCED) ---
-  public getKondanganByUser(
+  // ==========================================
+  // KONDANGAN OPERATIONS (ROW-LEVEL SECURITY)
+  // ==========================================
+  public async getKondanganByUser(
     userId: string,
     options?: { search?: string; filter?: 'all' | 'checked' | 'unchecked' }
-  ): (KondanganRecord & { nomor_urut: number })[] {
-    // STRICT ROW-LEVEL SECURITY: Only records matching user_id
-    // All records for this user, sorted chronologically ascending (Catatan paling lama → Catatan paling baru)
-    const allUserRecords = this.data.kondangan
-      .filter((item) => item.user_id === userId)
-      .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+  ): Promise<(KondanganRecord & { nomor_urut: number })[]> {
+    let allUserRecords: KondanganRecord[] = [];
 
-    // Map each record ID to its sequence number (1, 2, 3...) based strictly on created_at
+    if (this.supabaseClient) {
+      try {
+        const { data, error } = await this.supabaseClient
+          .from('kondangan')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: true });
+
+        if (error) {
+          console.error('[Supabase] getKondangan error, falling back to local:', error);
+          allUserRecords = this.localData.kondangan.filter((item) => item.user_id === userId);
+        } else if (data) {
+          allUserRecords = data as KondanganRecord[];
+        }
+      } catch (err) {
+        console.error('[Supabase] getKondangan exception:', err);
+        allUserRecords = this.localData.kondangan.filter((item) => item.user_id === userId);
+      }
+    } else {
+      allUserRecords = this.localData.kondangan.filter((item) => item.user_id === userId);
+    }
+
+    // Sort chronologically ascending (first created = #1)
+    allUserRecords.sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
+
+    // Build nomor_urut sequence map based on chronological index
     const seqMap = new Map<string, number>();
     allUserRecords.forEach((item, idx) => {
       seqMap.set(item.id, idx + 1);
     });
 
-    let records = allUserRecords;
+    let filtered = allUserRecords;
 
     if (options?.filter === 'checked') {
-      records = records.filter((item) => item.status_cek === true);
+      filtered = filtered.filter((item) => item.status_cek === true);
     } else if (options?.filter === 'unchecked') {
-      records = records.filter((item) => item.status_cek === false);
+      filtered = filtered.filter((item) => item.status_cek === false);
     }
 
     if (options?.search && options.search.trim()) {
       const q = options.search.trim().toLowerCase();
-      records = records.filter(
+      filtered = filtered.filter(
         (item) =>
           item.nama.toLowerCase().includes(q) ||
           item.alamat.toLowerCase().includes(q) ||
@@ -146,19 +356,39 @@ class DatabaseService {
       );
     }
 
-    // Return records sorted ascending by created_at with their permanent nomor_urut
-    return records.map((item) => ({
+    return filtered.map((item) => ({
       ...item,
       nomor_urut: seqMap.get(item.id) || 1,
     }));
   }
 
-  public getKondanganById(userId: string, id: string): KondanganRecord | null {
-    const record = this.data.kondangan.find((item) => item.id === id && item.user_id === userId);
+  public async getKondanganById(userId: string, id: string): Promise<KondanganRecord | null> {
+    if (this.supabaseClient) {
+      try {
+        const { data, error } = await this.supabaseClient
+          .from('kondangan')
+          .select('*')
+          .eq('id', id)
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        if (error) {
+          console.error('[Supabase] getKondanganById error:', error);
+        } else if (data) {
+          return data as KondanganRecord;
+        }
+      } catch (err) {
+        console.error('[Supabase] getKondanganById exception:', err);
+      }
+    }
+
+    const record = this.localData.kondangan.find(
+      (item) => item.id === id && item.user_id === userId
+    );
     return record || null;
   }
 
-  public createKondangan(
+  public async createKondangan(
     userId: string,
     data: {
       nama: string;
@@ -166,11 +396,11 @@ class DatabaseService {
       jumlah_kondangan: number;
       sokongan?: string;
     }
-  ): KondanganRecord & { nomor_urut: number } {
+  ): Promise<KondanganRecord & { nomor_urut: number }> {
     const now = new Date().toISOString();
     const newRecord: KondanganRecord = {
       id: crypto.randomUUID(),
-      user_id: userId, // Tied strictly to current authenticated user
+      user_id: userId,
       nama: data.nama.trim(),
       alamat: data.alamat.trim(),
       jumlah_kondangan: Number(data.jumlah_kondangan) || 0,
@@ -180,19 +410,40 @@ class DatabaseService {
       status_cek: false,
     };
 
-    // Append so records stay in chronological creation order
-    this.data.kondangan.push(newRecord);
-    this.persist();
+    if (this.supabaseClient) {
+      try {
+        const { data: inserted, error } = await this.supabaseClient
+          .from('kondangan')
+          .insert([newRecord])
+          .select()
+          .single();
 
-    // Determine sequence number among this user's records
-    const userCount = this.data.kondangan.filter((item) => item.user_id === userId).length;
+        if (error) {
+          console.error('[Supabase] createKondangan error, falling back to local:', error);
+        } else if (inserted) {
+          const userRecords = await this.getKondanganByUser(userId);
+          const found = userRecords.find((r) => r.id === inserted.id);
+          return {
+            ...(inserted as KondanganRecord),
+            nomor_urut: found ? found.nomor_urut : userRecords.length,
+          };
+        }
+      } catch (err) {
+        console.error('[Supabase] createKondangan exception:', err);
+      }
+    }
+
+    this.localData.kondangan.push(newRecord);
+    this.persistLocal();
+
+    const userCount = this.localData.kondangan.filter((item) => item.user_id === userId).length;
     return {
       ...newRecord,
       nomor_urut: userCount,
     };
   }
 
-  public updateKondangan(
+  public async updateKondangan(
     userId: string,
     id: string,
     data: {
@@ -202,8 +453,38 @@ class DatabaseService {
       sokongan?: string;
       status_cek?: boolean;
     }
-  ): KondanganRecord {
-    const index = this.data.kondangan.findIndex(
+  ): Promise<KondanganRecord> {
+    const now = new Date().toISOString();
+
+    if (this.supabaseClient) {
+      try {
+        const updatePayload: Record<string, any> = { updated_at: now };
+        if (data.nama !== undefined) updatePayload.nama = data.nama.trim();
+        if (data.alamat !== undefined) updatePayload.alamat = data.alamat.trim();
+        if (data.jumlah_kondangan !== undefined)
+          updatePayload.jumlah_kondangan = Number(data.jumlah_kondangan);
+        if (data.sokongan !== undefined) updatePayload.sokongan = data.sokongan.trim();
+        if (data.status_cek !== undefined) updatePayload.status_cek = Boolean(data.status_cek);
+
+        const { data: updated, error } = await this.supabaseClient
+          .from('kondangan')
+          .update(updatePayload)
+          .eq('id', id)
+          .eq('user_id', userId)
+          .select()
+          .single();
+
+        if (error) {
+          console.error('[Supabase] updateKondangan error, falling back to local:', error);
+        } else if (updated) {
+          return updated as KondanganRecord;
+        }
+      } catch (err) {
+        console.error('[Supabase] updateKondangan exception:', err);
+      }
+    }
+
+    const index = this.localData.kondangan.findIndex(
       (item) => item.id === id && item.user_id === userId
     );
 
@@ -211,7 +492,7 @@ class DatabaseService {
       throw new Error('Catatan tidak ditemukan atau Anda tidak memiliki hak akses.');
     }
 
-    const current = this.data.kondangan[index];
+    const current = this.localData.kondangan[index];
     const updated: KondanganRecord = {
       ...current,
       nama: data.nama !== undefined ? data.nama.trim() : current.nama,
@@ -222,51 +503,78 @@ class DatabaseService {
           : current.jumlah_kondangan,
       sokongan: data.sokongan !== undefined ? data.sokongan.trim() : current.sokongan,
       status_cek: data.status_cek !== undefined ? Boolean(data.status_cek) : current.status_cek,
-      updated_at: new Date().toISOString(),
+      updated_at: now,
     };
 
-    this.data.kondangan[index] = updated;
-    this.persist();
+    this.localData.kondangan[index] = updated;
+    this.persistLocal();
     return updated;
   }
 
-  public toggleStatusCek(userId: string, id: string): KondanganRecord {
-    const index = this.data.kondangan.findIndex(
-      (item) => item.id === id && item.user_id === userId
-    );
-
-    if (index === -1) {
+  public async toggleStatusCek(userId: string, id: string): Promise<KondanganRecord> {
+    const record = await this.getKondanganById(userId, id);
+    if (!record) {
       throw new Error('Catatan tidak ditemukan atau Anda tidak memiliki akses.');
     }
-
-    const current = this.data.kondangan[index];
-    current.status_cek = !current.status_cek;
-    current.updated_at = new Date().toISOString();
-
-    this.persist();
-    return current;
+    return this.updateKondangan(userId, id, { status_cek: !record.status_cek });
   }
 
-  public deleteKondangan(userId: string, id: string): boolean {
-    const initialLen = this.data.kondangan.length;
-    this.data.kondangan = this.data.kondangan.filter(
+  public async deleteKondangan(userId: string, id: string): Promise<boolean> {
+    if (this.supabaseClient) {
+      try {
+        const { error } = await this.supabaseClient
+          .from('kondangan')
+          .delete()
+          .eq('id', id)
+          .eq('user_id', userId);
+
+        if (error) {
+          console.error('[Supabase] deleteKondangan error:', error);
+        } else {
+          // Also remove from local
+          this.localData.kondangan = this.localData.kondangan.filter(
+            (item) => !(item.id === id && item.user_id === userId)
+          );
+          return true;
+        }
+      } catch (err) {
+        console.error('[Supabase] deleteKondangan exception:', err);
+      }
+    }
+
+    const initialLen = this.localData.kondangan.length;
+    this.localData.kondangan = this.localData.kondangan.filter(
       (item) => !(item.id === id && item.user_id === userId)
     );
 
-    const changed = this.data.kondangan.length < initialLen;
+    const changed = this.localData.kondangan.length < initialLen;
     if (changed) {
-      this.persist();
+      this.persistLocal();
     }
     return changed;
   }
 
-  public deleteAllKondanganByUser(userId: string): number {
-    const beforeCount = this.data.kondangan.length;
-    // Keep records belonging to other users only
-    this.data.kondangan = this.data.kondangan.filter((item) => item.user_id !== userId);
-    const deletedCount = beforeCount - this.data.kondangan.length;
+  public async deleteAllKondanganByUser(userId: string): Promise<number> {
+    if (this.supabaseClient) {
+      try {
+        const { error } = await this.supabaseClient
+          .from('kondangan')
+          .delete()
+          .eq('user_id', userId);
+
+        if (error) {
+          console.error('[Supabase] deleteAllKondanganByUser error:', error);
+        }
+      } catch (err) {
+        console.error('[Supabase] deleteAllKondanganByUser exception:', err);
+      }
+    }
+
+    const beforeCount = this.localData.kondangan.length;
+    this.localData.kondangan = this.localData.kondangan.filter((item) => item.user_id !== userId);
+    const deletedCount = beforeCount - this.localData.kondangan.length;
     if (deletedCount > 0) {
-      this.persist();
+      this.persistLocal();
     }
     return deletedCount;
   }

@@ -30,7 +30,11 @@ export function generateToken(user: UserRecord): string {
   );
 }
 
-export function authMiddleware(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export async function authMiddleware(
+  req: AuthenticatedRequest,
+  res: Response,
+  next: NextFunction
+): Promise<void> {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -51,7 +55,7 @@ export function authMiddleware(req: AuthenticatedRequest, res: Response, next: N
     }
 
     const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    const user = db.getUserById(decoded.userId);
+    const user = await db.getUserById(decoded.userId);
 
     if (!user) {
       res.status(401).json({

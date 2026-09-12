@@ -13,6 +13,20 @@
       "email": "siti@example.com",
       "password_hash": "$2b$10$ZJNrgp.KgyPV1m0H69XdOu8upQZUHa96RcOv0Ti/L.KPxP0.EsEiC",
       "created_at": "2026-09-12T13:19:29.691Z"
+    },
+    {
+      "id": "34c885d3-1bb5-452d-96cc-49be9ba6a0c9",
+      "nama": "User A",
+      "email": "usera@gmail.com",
+      "password_hash": "$2b$10$Ymz.fZrW/9e09uLXC.0Ce.VDcW/QU.oDRw32.MCMjR3QaIycpJS4a",
+      "created_at": "2026-09-12T14:55:56.539Z"
+    },
+    {
+      "id": "f2ca2b84-8838-4163-9298-9605f0f43c6d",
+      "nama": "User B",
+      "email": "userb@gmail.com",
+      "password_hash": "$2b$10$DfL7illBEL7QtZnAe7rh8Oy/mvH7Soc5vgheUm.arLv425LBofqsu",
+      "created_at": "2026-09-12T14:56:08.279Z"
     }
   ],
   "kondangan": [
@@ -36,6 +50,28 @@
       "sokongan": "Rokok 1 selop",
       "created_at": "2026-09-12T13:19:20.446Z",
       "updated_at": "2026-09-12T13:19:20.446Z",
+      "status_cek": false
+    },
+    {
+      "id": "be6c5ce3-7b81-4e78-8198-d86054c47055",
+      "user_id": "34c885d3-1bb5-452d-96cc-49be9ba6a0c9",
+      "nama": "Pernikahan Dimas & Putri",
+      "alamat": "Bandung",
+      "jumlah_kondangan": 200000,
+      "sokongan": "Kain Batik",
+      "created_at": "2026-09-12T14:56:04.327Z",
+      "updated_at": "2026-09-12T14:56:04.327Z",
+      "status_cek": false
+    },
+    {
+      "id": "f6df2bf6-2ef4-495a-97fb-dc82b77bf458",
+      "user_id": "f2ca2b84-8838-4163-9298-9605f0f43c6d",
+      "nama": "Pernikahan Rian & Maya",
+      "alamat": "Ciamis",
+      "jumlah_kondangan": 150000,
+      "sokongan": "Gula Pasir 2 kg",
+      "created_at": "2026-09-12T14:56:16.613Z",
+      "updated_at": "2026-09-12T14:56:16.613Z",
       "status_cek": false
     }
   ]

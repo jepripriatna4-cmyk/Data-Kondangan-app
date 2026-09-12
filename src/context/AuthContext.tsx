@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User } from '../types.js';
-import { api, getToken, removeToken } from '../lib/api.js';
+import { api, getToken, removeToken, getCachedUser, setCachedUser } from '../lib/api.js';
 
 interface AuthContextType {
   user: User | null;
@@ -14,8 +14,21 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+  // Initialize from cache if token is present to eliminate flicker on refresh
+  const [user, setUser] = useState<User | null>(() => {
+    const token = getToken();
+    if (token) {
+      return getCachedUser();
+    }
+    return null;
+  });
+
+  const [isLoading, setIsLoading] = useState<boolean>(() => {
+    // Only show full loader if token exists but cached user is missing
+    const token = getToken();
+    const cached = getCachedUser();
+    return Boolean(token && !cached);
+  });
 
   const checkAuth = async () => {
     const token = getToken();
@@ -29,13 +42,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await api.getMe();
       if (res.user) {
         setUser(res.user);
+        setCachedUser(res.user);
       } else {
         setUser(null);
         removeToken();
       }
-    } catch {
-      setUser(null);
-      removeToken();
+    } catch (err) {
+      console.warn('[Auth check status]:', err);
+      // If server explicitly returned 401, removeToken was already called
+      if (!getToken()) {
+        setUser(null);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -61,6 +78,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await api.login(email, password);
       if (res.user) {
         setUser(res.user);
+        setCachedUser(res.user);
       }
     } finally {
       setIsLoading(false);
@@ -78,6 +96,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const res = await api.register(nama, email, password, confirmPassword);
       if (res.user) {
         setUser(res.user);
+        setCachedUser(res.user);
       }
     } finally {
       setIsLoading(false);

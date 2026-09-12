@@ -1,6 +1,7 @@
 import { KondanganItem, KondanganStats, User } from '../types.js';
 
 const TOKEN_KEY = 'kondangan_auth_token';
+const USER_KEY = 'kondangan_user_profile';
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -12,6 +13,24 @@ export function setToken(token: string): void {
 
 export function removeToken(): void {
   localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+export function getCachedUser(): User | null {
+  try {
+    const raw = localStorage.getItem(USER_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setCachedUser(user: User): void {
+  try {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  } catch {
+    // Ignore storage quota errors
+  }
 }
 
 interface ApiResponse<T = any> {
@@ -31,6 +50,7 @@ async function request<T = any>(
   const token = getToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    Accept: 'application/json',
     ...(options.headers as Record<string, string>),
   };
 
@@ -38,25 +58,55 @@ async function request<T = any>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const response = await fetch(endpoint, {
-    ...options,
-    headers,
-  });
+  let response: Response;
+  try {
+    response = await fetch(endpoint, {
+      ...options,
+      headers,
+    });
+  } catch (netErr: any) {
+    console.error(`[Network Error ${options.method || 'GET'} ${endpoint}]:`, netErr);
+    throw new Error(
+      'Gagal terhubung ke server. Periksa koneksi internet Anda atau coba beberapa saat lagi.'
+    );
+  }
 
-  const data = await response.json().catch(() => ({
-    success: false,
-    message: 'Gagal menguraikan respon server.',
-  }));
+  const contentType = response.headers.get('content-type') || '';
+  let data: any = null;
+
+  if (contentType.includes('application/json')) {
+    data = await response.json().catch(() => null);
+  } else {
+    // Non-JSON response (such as HTML 404 or 500 from Vercel)
+    const rawText = await response.text().catch(() => '');
+    console.error(`[API Non-JSON Response ${response.status}]:`, rawText.slice(0, 300));
+
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new Error(
+          'API endpoint tidak ditemukan (404). Pastikan konfigurasi Vercel rewrites sudah benar.'
+        );
+      }
+      throw new Error(
+        `Terjadi kesalahan pada server (Status: ${response.status}). Silakan coba lagi nanti.`
+      );
+    }
+  }
 
   if (!response.ok) {
     if (response.status === 401) {
       removeToken();
       window.dispatchEvent(new Event('auth:unauthorized'));
     }
-    throw new Error(data.message || `Terjadi kesalahan (Kode: ${response.status})`);
+    const errMsg =
+      data?.message ||
+      (response.status === 401
+        ? 'Email atau kata sandi tidak sesuai.'
+        : `Terjadi kesalahan (Kode: ${response.status})`);
+    throw new Error(errMsg);
   }
 
-  return data;
+  return data || { success: true };
 }
 
 export const api = {
@@ -67,6 +117,9 @@ export const api = {
     });
     if (res.token) {
       setToken(res.token);
+    }
+    if (res.user) {
+      setCachedUser(res.user);
     }
     return res;
   },
@@ -79,13 +132,20 @@ export const api = {
     if (res.token) {
       setToken(res.token);
     }
+    if (res.user) {
+      setCachedUser(res.user);
+    }
     return res;
   },
 
   async getMe() {
-    return request<{ user: User }>('/api/auth/me', {
+    const res = await request<{ user: User }>('/api/auth/me', {
       method: 'GET',
     });
+    if (res.user) {
+      setCachedUser(res.user);
+    }
+    return res;
   },
 
   async getKondangan(search?: string, filter?: string) {
