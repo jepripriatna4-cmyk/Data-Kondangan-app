@@ -94,7 +94,11 @@ async function request<T = any>(
   }
 
   if (!response.ok) {
-    if (response.status === 401) {
+    if (
+      response.status === 401 &&
+      !endpoint.includes('/auth/login') &&
+      !endpoint.includes('/auth/register')
+    ) {
       removeToken();
       window.dispatchEvent(new Event('auth:unauthorized'));
     }
@@ -110,6 +114,17 @@ async function request<T = any>(
 }
 
 export const api = {
+  async getStorageStatus() {
+    return request<{
+      isPermanent: boolean;
+      type: string;
+      label: string;
+      warning: string | null;
+    }>('/api/storage-status', {
+      method: 'GET',
+    });
+  },
+
   async register(nama: string, email: string, password: string, confirmPassword: string) {
     const res = await request<{ token: string; user: User }>('/api/auth/register', {
       method: 'POST',

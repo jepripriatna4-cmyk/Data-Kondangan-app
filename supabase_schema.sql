@@ -1,6 +1,6 @@
 -- =========================================================
--- SQL SCHEMA FOR SUPABASE (APLIKASI DATA KONDANGAN)
--- Jalankan query ini di menu "SQL Editor" pada dashboard Supabase Anda.
+-- SQL SCHEMA UNTUK SUPABASE (APLIKASI DATA KONDANGAN)
+-- Jalankan skrip ini di menu "SQL Editor" pada dashboard Supabase Anda.
 -- =========================================================
 
 -- 1. Tabel users (Akun Pengguna)
@@ -28,21 +28,29 @@ CREATE TABLE IF NOT EXISTS public.kondangan (
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- Index query per user_id
+-- Index query per user_id & created_at
 CREATE INDEX IF NOT EXISTS idx_kondangan_user_id ON public.kondangan(user_id);
 CREATE INDEX IF NOT EXISTS idx_kondangan_created_at ON public.kondangan(created_at);
 
--- 3. Row Level Security (RLS)
+-- 3. Row Level Security (RLS) & Hak Akses
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.kondangan ENABLE ROW LEVEL SECURITY;
 
--- Kebijakan akses (Bisa diakses oleh service role key atau anon key aplikasi)
-CREATE POLICY IF NOT EXISTS "Allow all operations for app backend"
+-- Berikan izin akses penuh ke role API (anon, authenticated, service_role)
+GRANT ALL ON public.users TO anon, authenticated, service_role;
+GRANT ALL ON public.kondangan TO anon, authenticated, service_role;
+
+-- Kebijakan akses universal (Drop & Create agar kompatibel di semua versi PostgreSQL)
+DROP POLICY IF EXISTS "Allow all operations for app backend on users" ON public.users;
+CREATE POLICY "Allow all operations for app backend on users"
 ON public.users FOR ALL
+TO anon, authenticated, service_role
 USING (true)
 WITH CHECK (true);
 
-CREATE POLICY IF NOT EXISTS "Allow all operations for app backend"
+DROP POLICY IF EXISTS "Allow all operations for app backend on kondangan" ON public.kondangan;
+CREATE POLICY "Allow all operations for app backend on kondangan"
 ON public.kondangan FOR ALL
+TO anon, authenticated, service_role
 USING (true)
 WITH CHECK (true);

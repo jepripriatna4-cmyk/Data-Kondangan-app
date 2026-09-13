@@ -38,7 +38,7 @@ app.use((req, _res, next) => {
 const router = express.Router();
 
 // ==========================================
-// HEALTH CHECK
+// HEALTH & STORAGE STATUS CHECK
 // ==========================================
 router.get('/health', (_req: Request, res: Response) => {
   res.json({
@@ -46,6 +46,13 @@ router.get('/health', (_req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     isUsingSupabase: db.isUsingSupabase(),
     env: process.env.NODE_ENV || 'development',
+  });
+});
+
+router.get('/storage-status', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    ...db.getStorageStatus(),
   });
 });
 

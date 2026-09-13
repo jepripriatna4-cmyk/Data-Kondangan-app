@@ -40,6 +40,7 @@ export async function authMiddleware(
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
       res.status(401).json({
         success: false,
+        code: 'NO_TOKEN',
         message: 'Akses ditolak. Sesi tidak ditemukan atau token tidak valid.',
       });
       return;
@@ -49,28 +50,44 @@ export async function authMiddleware(
     if (!token) {
       res.status(401).json({
         success: false,
+        code: 'NO_TOKEN',
         message: 'Akses ditolak. Token tidak ditemukan.',
       });
       return;
     }
 
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    let decoded: { userId: string };
+    try {
+      decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+    } catch (jwtErr: any) {
+      const isExpired = jwtErr.name === 'TokenExpiredError';
+      res.status(401).json({
+        success: false,
+        code: isExpired ? 'SESSION_EXPIRED' : 'INVALID_TOKEN',
+        message: isExpired
+          ? 'Sesi Anda telah kedaluwarsa. Silakan masuk kembali.'
+          : 'Token autentikasi tidak valid. Silakan masuk kembali.',
+      });
+      return;
+    }
+
     const user = await db.getUserById(decoded.userId);
 
     if (!user) {
       res.status(401).json({
         success: false,
-        message: 'Pengguna tidak ditemukan. Silakan login kembali.',
+        code: 'USER_NOT_FOUND',
+        message: 'Akun tidak ditemukan atau telah dihapus. Silakan login kembali.',
       });
       return;
     }
 
     req.user = user;
     next();
-  } catch (err) {
-    res.status(401).json({
+  } catch (err: any) {
+    res.status(500).json({
       success: false,
-      message: 'Sesi Anda telah kedaluwarsa. Silakan masuk kembali.',
+      message: err.message || 'Terjadi kesalahan saat memverifikasi sesi autentikasi.',
     });
   }
 }
