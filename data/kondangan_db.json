@@ -1,114 +1,12 @@
 {
   "users": [
     {
-      "id": "fc8ec14c-c838-4da5-bbff-feec6bafc8a6",
-      "nama": "Budi Santoso",
-      "email": "budi@example.com",
-      "password_hash": "$2b$10$cjP5BEvFEiL4TXNrbN4X6.b9MKU103gGbLEeLYbu5H95L8PA7bKOq",
-      "created_at": "2026-09-12T13:19:13.665Z"
-    },
-    {
-      "id": "95ea8012-283c-4171-853f-ae1188cc15fd",
-      "nama": "Siti Rahma",
-      "email": "siti@example.com",
-      "password_hash": "$2b$10$ZJNrgp.KgyPV1m0H69XdOu8upQZUHa96RcOv0Ti/L.KPxP0.EsEiC",
-      "created_at": "2026-09-12T13:19:29.691Z"
-    },
-    {
-      "id": "34c885d3-1bb5-452d-96cc-49be9ba6a0c9",
-      "nama": "User A",
-      "email": "usera@gmail.com",
-      "password_hash": "$2b$10$Ymz.fZrW/9e09uLXC.0Ce.VDcW/QU.oDRw32.MCMjR3QaIycpJS4a",
-      "created_at": "2026-09-12T14:55:56.539Z"
-    },
-    {
-      "id": "f2ca2b84-8838-4163-9298-9605f0f43c6d",
-      "nama": "User B",
-      "email": "userb@gmail.com",
-      "password_hash": "$2b$10$DfL7illBEL7QtZnAe7rh8Oy/mvH7Soc5vgheUm.arLv425LBofqsu",
-      "created_at": "2026-09-12T14:56:08.279Z"
-    },
-    {
-      "id": "41f2a1a7-59ba-41d5-b796-24256b41f419",
-      "nama": "Test User",
-      "email": "testuser_1789283987920@example.com",
-      "password_hash": "$2b$10$mMTN5bBBhAEWaDXTbeudxezxhSV6.ThH.t1.bPZXEBOCZYr7zNjcm",
-      "created_at": "2026-09-13T07:19:48.059Z"
-    },
-    {
-      "id": "f4018f3c-d368-4238-8f89-dddb368390bb",
-      "nama": "Andi Wijaya",
-      "email": "relg_1789283993969@example.com",
-      "password_hash": "$2b$10$rFZu/Fmt3oD0QVn0fHP3dequVYaw1arx.3lqry0iGpmSFtKswEeZy",
-      "created_at": "2026-09-13T07:19:54.127Z"
+      "id": "9ac6492b-6a97-41f8-81f1-08248c332e44",
+      "nama": "Pengguna Baru Tes",
+      "email": "pengguna_baru_1789509474535@domain.com",
+      "password_hash": "$2b$10$YVPCYxXLctcHpxd5bnKNj.Rre8AM7koHqcKCMr6ctQ4RDCtntglx2",
+      "created_at": "2026-09-15T21:57:54.700Z"
     }
   ],
-  "kondangan": [
-    {
-      "id": "00bff408-d740-45e2-ba6e-14b62eae07d4",
-      "user_id": "fc8ec14c-c838-4da5-bbff-feec6bafc8a6",
-      "nama": "Rebo Bugel",
-      "alamat": "Pangandaran",
-      "jumlah_kondangan": 500000,
-      "sokongan": "Beras 5 kg",
-      "created_at": "2026-09-12T13:19:17.231Z",
-      "updated_at": "2026-09-12T13:19:26.143Z",
-      "status_cek": true
-    },
-    {
-      "id": "1fd23a5f-06f2-4956-a7d7-e0f2e993f590",
-      "user_id": "fc8ec14c-c838-4da5-bbff-feec6bafc8a6",
-      "nama": "ANTONIO CULI",
-      "alamat": "Mangunjaya",
-      "jumlah_kondangan": 100000,
-      "sokongan": "Rokok 1 selop",
-      "created_at": "2026-09-12T13:19:20.446Z",
-      "updated_at": "2026-09-12T13:19:20.446Z",
-      "status_cek": false
-    },
-    {
-      "id": "be6c5ce3-7b81-4e78-8198-d86054c47055",
-      "user_id": "34c885d3-1bb5-452d-96cc-49be9ba6a0c9",
-      "nama": "Pernikahan Dimas & Putri",
-      "alamat": "Bandung",
-      "jumlah_kondangan": 200000,
-      "sokongan": "Kain Batik",
-      "created_at": "2026-09-12T14:56:04.327Z",
-      "updated_at": "2026-09-12T14:56:04.327Z",
-      "status_cek": false
-    },
-    {
-      "id": "f6df2bf6-2ef4-495a-97fb-dc82b77bf458",
-      "user_id": "f2ca2b84-8838-4163-9298-9605f0f43c6d",
-      "nama": "Pernikahan Rian & Maya",
-      "alamat": "Ciamis",
-      "jumlah_kondangan": 150000,
-      "sokongan": "Gula Pasir 2 kg",
-      "created_at": "2026-09-12T14:56:16.613Z",
-      "updated_at": "2026-09-12T14:56:16.613Z",
-      "status_cek": false
-    },
-    {
-      "id": "4219fd2c-7cea-4635-91de-25340f422f06",
-      "user_id": "41f2a1a7-59ba-41d5-b796-24256b41f419",
-      "nama": "Tamu Kehormatan",
-      "alamat": "Bandung",
-      "jumlah_kondangan": 350000,
-      "sokongan": "Kado Spesial",
-      "created_at": "2026-09-13T07:19:48.142Z",
-      "updated_at": "2026-09-13T07:19:48.142Z",
-      "status_cek": false
-    },
-    {
-      "id": "c9e15606-7915-4929-9d1d-7e7dc13ca976",
-      "user_id": "f4018f3c-d368-4238-8f89-dddb368390bb",
-      "nama": "Haji Sulaiman",
-      "alamat": "Ciamis",
-      "jumlah_kondangan": 750000,
-      "sokongan": "Beras 10kg",
-      "created_at": "2026-09-13T07:19:54.150Z",
-      "updated_at": "2026-09-13T07:19:54.150Z",
-      "status_cek": false
-    }
-  ]
+  "kondangan": []
 }

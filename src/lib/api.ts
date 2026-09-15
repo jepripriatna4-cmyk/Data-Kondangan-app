@@ -2,6 +2,55 @@ import { KondanganItem, KondanganStats, User } from '../types.js';
 
 const TOKEN_KEY = 'kondangan_auth_token';
 const USER_KEY = 'kondangan_user_profile';
+const VAULT_KEY = 'kondangan_account_vault';
+const ITEMS_CACHE_PREFIX = 'kondangan_items_cache_';
+
+export interface AccountVaultItem {
+  id: string;
+  nama: string;
+  email: string;
+  password_hash: string;
+  created_at: string;
+}
+
+export function getAccountBackup(email: string): AccountVaultItem | null {
+  try {
+    const raw = localStorage.getItem(VAULT_KEY);
+    if (!raw) return null;
+    const map = JSON.parse(raw);
+    return map[email.trim().toLowerCase()] || null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveAccountBackup(backup: AccountVaultItem): void {
+  try {
+    const raw = localStorage.getItem(VAULT_KEY);
+    const map = raw ? JSON.parse(raw) : {};
+    map[backup.email.trim().toLowerCase()] = backup;
+    localStorage.setItem(VAULT_KEY, JSON.stringify(map));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
+
+export function getCachedKondangan(userId: string): KondanganItem[] {
+  try {
+    const raw = localStorage.getItem(ITEMS_CACHE_PREFIX + userId);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setCachedKondangan(userId: string, items: KondanganItem[]): void {
+  try {
+    localStorage.setItem(ITEMS_CACHE_PREFIX + userId, JSON.stringify(items));
+  } catch {
+    // Ignore storage quota errors
+  }
+}
 
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -41,6 +90,7 @@ interface ApiResponse<T = any> {
   stats?: KondanganStats;
   token?: string;
   user?: User;
+  accountBackup?: AccountVaultItem;
 }
 
 async function request<T = any>(
@@ -126,7 +176,11 @@ export const api = {
   },
 
   async register(nama: string, email: string, password: string, confirmPassword: string) {
-    const res = await request<{ token: string; user: User }>('/api/auth/register', {
+    const res = await request<{
+      token: string;
+      user: User;
+      accountBackup?: AccountVaultItem;
+    }>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({ nama, email, password, confirmPassword }),
     });
@@ -136,19 +190,30 @@ export const api = {
     if (res.user) {
       setCachedUser(res.user);
     }
+    if (res.accountBackup) {
+      saveAccountBackup(res.accountBackup);
+    }
     return res;
   },
 
   async login(email: string, password: string) {
-    const res = await request<{ token: string; user: User }>('/api/auth/login', {
+    const accountBackup = getAccountBackup(email);
+    const res = await request<{
+      token: string;
+      user: User;
+      accountBackup?: AccountVaultItem;
+    }>('/api/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ email, password, accountBackup }),
     });
     if (res.token) {
       setToken(res.token);
     }
     if (res.user) {
       setCachedUser(res.user);
+    }
+    if (res.accountBackup) {
+      saveAccountBackup(res.accountBackup);
     }
     return res;
   },
@@ -170,9 +235,59 @@ export const api = {
 
     const qs = params.toString();
     const endpoint = `/api/kondangan${qs ? `?${qs}` : ''}`;
-    return request<KondanganItem[]>(endpoint, {
-      method: 'GET',
-    });
+    const user = getCachedUser();
+
+    try {
+      const res = await request<KondanganItem[]>(endpoint, {
+        method: 'GET',
+      });
+
+      // Save fresh items to client-side cache
+      if (user && res.data && (!search || !search.trim()) && (!filter || filter === 'all')) {
+        setCachedKondangan(user.id, res.data);
+      }
+
+      // If server returned 0 records on an unfiltered query, but client has cached items
+      // (indicating a server container restart / ephemeral storage reset):
+      if (
+        user &&
+        res.data &&
+        res.data.length === 0 &&
+        (!search || !search.trim()) &&
+        (!filter || filter === 'all')
+      ) {
+        const cached = getCachedKondangan(user.id);
+        if (cached && cached.length > 0) {
+          try {
+            await request('/api/kondangan/restore', {
+              method: 'POST',
+              body: JSON.stringify({ items: cached }),
+            });
+            const refetched = await request<KondanganItem[]>(endpoint, { method: 'GET' });
+            return refetched;
+          } catch {
+            return {
+              ...res,
+              data: cached,
+            };
+          }
+        }
+      }
+
+      return res;
+    } catch (err: any) {
+      // If network failed but cached items exist, provide graceful fallback
+      if (user && (!search || !search.trim()) && (!filter || filter === 'all')) {
+        const cached = getCachedKondangan(user.id);
+        if (cached && cached.length > 0) {
+          return {
+            success: true,
+            data: cached,
+          };
+        }
+      }
+      throw err;
+    }
   },
 
   async createKondangan(data: {

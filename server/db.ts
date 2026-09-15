@@ -99,6 +99,7 @@ class DatabaseService {
   };
   private supabaseClient: SupabaseClient | null = null;
   private storagePaths = resolveDbPaths();
+  private lastDiskCheck = 0;
 
   constructor() {
     this.initSupabase();
@@ -172,6 +173,51 @@ class DatabaseService {
     };
   }
 
+  public syncFromDisk() {
+    // Avoid reading disk more than once every 200ms unless forced
+    const now = Date.now();
+    if (now - this.lastDiskCheck < 200) return;
+    this.lastDiskCheck = now;
+
+    const candidateFiles = [
+      this.storagePaths.dbFile,
+      path.join(process.cwd(), 'data', 'kondangan_db.json'),
+      path.join('/tmp', 'kondangan_data', 'kondangan_db.json'),
+    ];
+
+    for (const file of candidateFiles) {
+      if (fs.existsSync(file)) {
+        try {
+          const raw = fs.readFileSync(file, 'utf-8');
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed.users)) {
+            for (const u of parsed.users) {
+              const cleanEmail = (u.email || '').trim().toLowerCase();
+              const existingIdx = this.localData.users.findIndex(
+                (item) => item.id === u.id || item.email.toLowerCase() === cleanEmail
+              );
+              if (existingIdx === -1) {
+                this.localData.users.push(u);
+              } else if (u.password_hash && !this.localData.users[existingIdx].password_hash) {
+                this.localData.users[existingIdx].password_hash = u.password_hash;
+              }
+            }
+          }
+          if (Array.isArray(parsed.kondangan)) {
+            for (const k of parsed.kondangan) {
+              const exists = this.localData.kondangan.some((item) => item.id === k.id);
+              if (!exists) {
+                this.localData.kondangan.push(k);
+              }
+            }
+          }
+        } catch {
+          // Ignore parse errors from partially written temp files
+        }
+      }
+    }
+  }
+
   private initLocal() {
     try {
       const { dataDir, dbFile } = this.storagePaths;
@@ -194,23 +240,7 @@ class DatabaseService {
         }
       }
 
-      if (fs.existsSync(dbFile)) {
-        const raw = fs.readFileSync(dbFile, 'utf-8');
-        const parsed = JSON.parse(raw);
-        this.localData = {
-          users: Array.isArray(parsed.users) ? parsed.users : [...SEED_DATA.users],
-          kondangan: Array.isArray(parsed.kondangan) ? parsed.kondangan : [...SEED_DATA.kondangan],
-        };
-      } else if (fs.existsSync(sourceFile)) {
-        const raw = fs.readFileSync(sourceFile, 'utf-8');
-        const parsed = JSON.parse(raw);
-        this.localData = {
-          users: Array.isArray(parsed.users) ? parsed.users : [...SEED_DATA.users],
-          kondangan: Array.isArray(parsed.kondangan) ? parsed.kondangan : [...SEED_DATA.kondangan],
-        };
-      } else {
-        this.persistLocal();
-      }
+      this.syncFromDisk();
     } catch (err) {
       console.error('[Database] Error initializing local database file:', err);
       this.localData = {
@@ -221,16 +251,24 @@ class DatabaseService {
   }
 
   private persistLocal() {
-    try {
-      const { dataDir, dbFile } = this.storagePaths;
-      if (!fs.existsSync(dataDir)) {
-        fs.mkdirSync(dataDir, { recursive: true });
+    const targets = [
+      this.storagePaths.dbFile,
+      path.join(process.cwd(), 'data', 'kondangan_db.json'),
+      path.join('/tmp', 'kondangan_data', 'kondangan_db.json'),
+    ];
+
+    const dataString = JSON.stringify(this.localData, null, 2);
+
+    for (const target of targets) {
+      try {
+        const dir = path.dirname(target);
+        if (!fs.existsSync(dir)) {
+          fs.mkdirSync(dir, { recursive: true });
+        }
+        fs.writeFileSync(target, dataString, 'utf-8');
+      } catch {
+        // Read-only filesystem on certain paths is expected in some environments
       }
-      const tmpFile = `${dbFile}.tmp.${Date.now()}`;
-      fs.writeFileSync(tmpFile, JSON.stringify(this.localData, null, 2), 'utf-8');
-      fs.renameSync(tmpFile, dbFile);
-    } catch (err) {
-      console.warn('[Database] Failed to persist local JSON to disk:', err);
     }
   }
 
@@ -239,6 +277,7 @@ class DatabaseService {
   // ==========================================
   public async getUserByEmail(email: string): Promise<UserRecord | null> {
     const cleanEmail = email.trim().toLowerCase();
+    this.syncFromDisk();
 
     if (this.supabaseClient) {
       const { data, error } = await this.supabaseClient
@@ -254,7 +293,7 @@ class DatabaseService {
         );
       }
 
-      return (data as UserRecord) || null;
+      if (data) return data as UserRecord;
     }
 
     const user = this.localData.users.find((u) => u.email.toLowerCase() === cleanEmail);
@@ -262,6 +301,8 @@ class DatabaseService {
   }
 
   public async getUserById(id: string): Promise<UserRecord | null> {
+    this.syncFromDisk();
+
     if (this.supabaseClient) {
       const { data, error } = await this.supabaseClient
         .from('users')
@@ -276,11 +317,51 @@ class DatabaseService {
         );
       }
 
-      return (data as UserRecord) || null;
+      if (data) return data as UserRecord;
     }
 
     const user = this.localData.users.find((u) => u.id === id);
     return user || null;
+  }
+
+  public async restoreUser(userData: UserRecord): Promise<UserRecord> {
+    const cleanEmail = userData.email.trim().toLowerCase();
+    this.syncFromDisk();
+
+    const existingIdx = this.localData.users.findIndex(
+      (u) => u.id === userData.id || u.email.toLowerCase() === cleanEmail
+    );
+
+    const userRecord: UserRecord = {
+      id: userData.id || crypto.randomUUID(),
+      nama: (userData.nama || 'Pengguna').trim(),
+      email: cleanEmail,
+      password_hash: userData.password_hash || '',
+      created_at: userData.created_at || new Date().toISOString(),
+    };
+
+    if (existingIdx >= 0) {
+      this.localData.users[existingIdx] = {
+        ...this.localData.users[existingIdx],
+        ...userRecord,
+        password_hash:
+          userRecord.password_hash || this.localData.users[existingIdx].password_hash,
+      };
+    } else {
+      this.localData.users.push(userRecord);
+    }
+
+    this.persistLocal();
+
+    if (this.supabaseClient) {
+      try {
+        await this.supabaseClient.from('users').upsert([userRecord], { onConflict: 'id' });
+      } catch (err) {
+        console.warn('[Supabase] restoreUser error (safe to ignore):', err);
+      }
+    }
+
+    return userRecord;
   }
 
   public async createUser(userData: {
@@ -331,6 +412,7 @@ class DatabaseService {
     userId: string,
     options?: { search?: string; filter?: 'all' | 'checked' | 'unchecked' }
   ): Promise<(KondanganRecord & { nomor_urut: number })[]> {
+    this.syncFromDisk();
     let allUserRecords: KondanganRecord[] = [];
 
     if (this.supabaseClient) {
@@ -566,6 +648,40 @@ class DatabaseService {
       this.persistLocal();
     }
     return changed;
+  }
+
+  public async restoreKondanganRecords(
+    userId: string,
+    records: KondanganRecord[]
+  ): Promise<number> {
+    this.syncFromDisk();
+    let restoredCount = 0;
+
+    for (const rec of records) {
+      if (!rec || !rec.id) continue;
+      const exists = this.localData.kondangan.some((item) => item.id === rec.id);
+      if (!exists) {
+        const item: KondanganRecord = {
+          ...rec,
+          user_id: userId,
+        };
+        this.localData.kondangan.push(item);
+        restoredCount++;
+
+        if (this.supabaseClient) {
+          try {
+            await this.supabaseClient.from('kondangan').upsert([item], { onConflict: 'id' });
+          } catch {
+            // Safe to ignore
+          }
+        }
+      }
+    }
+
+    if (restoredCount > 0) {
+      this.persistLocal();
+    }
+    return restoredCount;
   }
 
   public async deleteAllKondanganByUser(userId: string): Promise<number> {

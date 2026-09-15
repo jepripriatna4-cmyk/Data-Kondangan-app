@@ -56,9 +56,9 @@ export async function authMiddleware(
       return;
     }
 
-    let decoded: { userId: string };
+    let decoded: { userId: string; email?: string; nama?: string };
     try {
-      decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
+      decoded = jwt.verify(token, JWT_SECRET) as any;
     } catch (jwtErr: any) {
       const isExpired = jwtErr.name === 'TokenExpiredError';
       res.status(401).json({
@@ -71,7 +71,29 @@ export async function authMiddleware(
       return;
     }
 
-    const user = await db.getUserById(decoded.userId);
+    let user = await db.getUserById(decoded.userId);
+
+    // If user not found by ID (e.g. server container restarted/cold-started), check by email
+    if (!user && decoded.email) {
+      user = await db.getUserByEmail(decoded.email);
+    }
+
+    // If still not found, but the token is cryptographically verified with JWT_SECRET,
+    // seamlessly restore the user in the database so that an ephemeral container restart
+    // does not disconnect or kick out the authenticated user.
+    if (!user && decoded.userId && decoded.email) {
+      try {
+        user = await db.restoreUser({
+          id: decoded.userId,
+          nama: decoded.nama || 'Pengguna',
+          email: decoded.email,
+          password_hash: '',
+          created_at: new Date().toISOString(),
+        });
+      } catch (restoreErr) {
+        console.warn('[authMiddleware] Auto-restore user warning:', restoreErr);
+      }
+    }
 
     if (!user) {
       res.status(401).json({

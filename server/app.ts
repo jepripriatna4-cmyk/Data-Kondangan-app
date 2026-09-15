@@ -125,6 +125,13 @@ router.post('/auth/register', async (req: Request, res: Response): Promise<void>
         email: newUser.email,
         created_at: newUser.created_at,
       },
+      accountBackup: {
+        id: newUser.id,
+        nama: newUser.nama,
+        email: newUser.email,
+        password_hash: newUser.password_hash,
+        created_at: newUser.created_at,
+      },
     });
   } catch (err: any) {
     console.error('[Register error]:', err);
@@ -138,7 +145,7 @@ router.post('/auth/register', async (req: Request, res: Response): Promise<void>
 // Login
 router.post('/auth/login', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { email, password } = req.body;
+    const { email, password, accountBackup } = req.body;
 
     if (!email || !password) {
       res.status(400).json({
@@ -148,7 +155,27 @@ router.post('/auth/login', async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const user = await db.getUserByEmail(email);
+    const cleanEmail = (email as string).trim().toLowerCase();
+    let user = await db.getUserByEmail(cleanEmail);
+
+    // If account is not in database (e.g. server container restarted/cold-started),
+    // check if client provided a verified account backup for this email:
+    if (!user && accountBackup && typeof accountBackup === 'object') {
+      const backupEmail = (accountBackup.email || '').trim().toLowerCase();
+      if (backupEmail === cleanEmail && accountBackup.password_hash) {
+        const isBackupMatch = await verifyPassword(password, accountBackup.password_hash);
+        if (isBackupMatch) {
+          user = await db.restoreUser({
+            id: accountBackup.id || crypto.randomUUID(),
+            nama: accountBackup.nama || 'Pengguna',
+            email: cleanEmail,
+            password_hash: accountBackup.password_hash,
+            created_at: accountBackup.created_at || new Date().toISOString(),
+          });
+        }
+      }
+    }
+
     if (!user) {
       res.status(401).json({
         success: false,
@@ -157,13 +184,26 @@ router.post('/auth/login', async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    const isMatch = await verifyPassword(password, user.password_hash);
-    if (!isMatch) {
-      res.status(401).json({
-        success: false,
-        message: 'Email atau kata sandi tidak sesuai.',
-      });
-      return;
+    if (user.password_hash) {
+      const isMatch = await verifyPassword(password, user.password_hash);
+      if (!isMatch) {
+        res.status(401).json({
+          success: false,
+          message: 'Email atau kata sandi tidak sesuai.',
+        });
+        return;
+      }
+    } else if (accountBackup && accountBackup.password_hash) {
+      const isMatch = await verifyPassword(password, accountBackup.password_hash);
+      if (!isMatch) {
+        res.status(401).json({
+          success: false,
+          message: 'Email atau kata sandi tidak sesuai.',
+        });
+        return;
+      }
+      user.password_hash = accountBackup.password_hash;
+      await db.restoreUser(user);
     }
 
     const token = generateToken(user);
@@ -176,6 +216,13 @@ router.post('/auth/login', async (req: Request, res: Response): Promise<void> =>
         id: user.id,
         nama: user.nama,
         email: user.email,
+        created_at: user.created_at,
+      },
+      accountBackup: {
+        id: user.id,
+        nama: user.nama,
+        email: user.email,
+        password_hash: user.password_hash,
         created_at: user.created_at,
       },
     });
@@ -478,6 +525,30 @@ router.delete('/kondangan', authMiddleware, async (req: AuthenticatedRequest, re
     });
   }
 });
+
+// Restore kondangan records from client backup if server restarted
+router.post(
+  '/kondangan/restore',
+  authMiddleware,
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    try {
+      const userId = req.user!.id;
+      const { items } = req.body;
+      if (Array.isArray(items) && items.length > 0) {
+        const count = await db.restoreKondanganRecords(userId, items);
+        res.json({ success: true, count });
+        return;
+      }
+      res.json({ success: true, count: 0 });
+    } catch (err: any) {
+      console.error('[Restore kondangan error]:', err);
+      res.status(500).json({
+        success: false,
+        message: 'Gagal memulihkan catatan.',
+      });
+    }
+  }
+);
 
 // Mount router on BOTH '/api' and '/'
 // This ensures that whether Vercel preserves or strips the '/api' prefix, requests are always matched!
